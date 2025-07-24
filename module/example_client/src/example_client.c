@@ -20,43 +20,76 @@ static struct {
 
 static void temperature_notification_callback(
     enum sensor_type type,
+    unsigned int detector_id,
+    enum sensor_interrupt_type interrupt_type,
     uint32_t value,
     fwk_id_t source_id)
 {
-    FWK_LOG_INFO("[CLIENT] Temperature sensor notification: %u°C", value);
-    
-    /* Handle temperature change */
-    if (value > 80) {
-        FWK_LOG_WARN("[CLIENT] High temperature detected: %u°C", value);
-        /* Take action for high temperature */
+    const char *interrupt_str = (interrupt_type == SENSOR_INTERRUPT_THRESHOLD_EXCEEDED) ?
+        "THRESHOLD_EXCEEDED" : "THRESHOLD_NORMAL";
+
+    FWK_LOG_INFO("[CLIENT] Temperature sensor notification: detector %d, %s, %u°C",
+                 detector_id, interrupt_str, value);
+
+    /* Handle temperature threshold changes */
+    if (interrupt_type == SENSOR_INTERRUPT_THRESHOLD_EXCEEDED) {
+        FWK_LOG_WARN("[CLIENT] Temperature threshold exceeded on detector %d: %u°C", detector_id, value);
+        /* Take action for high temperature - e.g., throttle CPU, increase fan speed */
+        FWK_LOG_INFO("[CLIENT] Activating thermal protection measures...");
+    } else {
+        FWK_LOG_INFO("[CLIENT] Temperature returned to normal on detector %d: %u°C", detector_id, value);
+        /* Take action for normal temperature - e.g., restore normal operation */
+        FWK_LOG_INFO("[CLIENT] Restoring normal operation...");
     }
 }
 
 static void voltage_notification_callback(
     enum sensor_type type,
+    unsigned int detector_id,
+    enum sensor_interrupt_type interrupt_type,
     uint32_t value,
     fwk_id_t source_id)
 {
-    FWK_LOG_INFO("[CLIENT] Voltage sensor notification: %u mV", value);
-    
-    /* Handle voltage change */
-    if (value < 3000 || value > 3600) {
-        FWK_LOG_WARN("[CLIENT] Voltage out of range: %u mV", value);
-        /* Take action for voltage out of range */
+    const char *interrupt_str = (interrupt_type == SENSOR_INTERRUPT_THRESHOLD_EXCEEDED) ?
+        "THRESHOLD_EXCEEDED" : "THRESHOLD_NORMAL";
+
+    FWK_LOG_INFO("[CLIENT] Voltage sensor notification: detector %d, %s, %u mV",
+                 detector_id, interrupt_str, value);
+
+    /* Handle voltage threshold changes */
+    if (interrupt_type == SENSOR_INTERRUPT_THRESHOLD_EXCEEDED) {
+        FWK_LOG_WARN("[CLIENT] Voltage threshold exceeded on detector %d: %u mV", detector_id, value);
+        /* Take action for voltage out of range - e.g., emergency shutdown, switch power source */
+        FWK_LOG_WARN("[CLIENT] Initiating voltage protection protocol...");
+    } else {
+        FWK_LOG_INFO("[CLIENT] Voltage returned to normal on detector %d: %u mV", detector_id, value);
+        /* Take action for normal voltage - e.g., resume normal operation */
+        FWK_LOG_INFO("[CLIENT] Voltage stabilized, resuming normal operation...");
     }
 }
 
 static void frequency_notification_callback(
     enum sensor_type type,
+    unsigned int detector_id,
+    enum sensor_interrupt_type interrupt_type,
     uint32_t value,
     fwk_id_t source_id)
 {
-    FWK_LOG_INFO("[CLIENT] Frequency sensor notification: %u MHz", value);
-    
-    /* Handle frequency change */
-    if (value > 2000) {
-        FWK_LOG_INFO("[CLIENT] High frequency mode: %u MHz", value);
-        /* Adjust system settings for high frequency */
+    const char *interrupt_str = (interrupt_type == SENSOR_INTERRUPT_THRESHOLD_EXCEEDED) ?
+        "THRESHOLD_EXCEEDED" : "THRESHOLD_NORMAL";
+
+    FWK_LOG_INFO("[CLIENT] Frequency sensor notification: detector %d, %s, %u MHz",
+                 detector_id, interrupt_str, value);
+
+    /* Handle frequency threshold changes */
+    if (interrupt_type == SENSOR_INTERRUPT_THRESHOLD_EXCEEDED) {
+        FWK_LOG_WARN("[CLIENT] Frequency threshold exceeded on detector %d: %u MHz", detector_id, value);
+        /* Take action for high frequency - e.g., adjust power management, thermal throttling */
+        FWK_LOG_INFO("[CLIENT] Adjusting power management for high frequency...");
+    } else {
+        FWK_LOG_INFO("[CLIENT] Frequency returned to normal on detector %d: %u MHz", detector_id, value);
+        /* Take action for normal frequency - e.g., restore standard power settings */
+        FWK_LOG_INFO("[CLIENT] Restoring standard power settings...");
     }
 }
 
@@ -96,10 +129,12 @@ static int client_start(fwk_id_t id)
 {
     int status;
     fwk_id_t client_id = FWK_ID_MODULE(FWK_MODULE_IDX_EXAMPLE_CLIENT);
+    unsigned int detector_id;
 
-    /* Register for temperature notifications */
+    /* Register for temperature notifications from all detectors (wildcard) */
     status = client_ctx.sensor_api->register_notification(
         SENSOR_TYPE_TEMPERATURE,
+        UINT_MAX,  /* UINT_MAX means all detectors */
         temperature_notification_callback,
         client_id);
 
@@ -108,9 +143,10 @@ static int client_start(fwk_id_t id)
         return status;
     }
 
-    /* Register for voltage notifications */
+    /* Register for voltage notifications from detector 0 only */
     status = client_ctx.sensor_api->register_notification(
         SENSOR_TYPE_VOLTAGE,
+        0,  /* Specific detector ID */
         voltage_notification_callback,
         client_id);
 
@@ -119,9 +155,10 @@ static int client_start(fwk_id_t id)
         return status;
     }
 
-    /* Register for frequency notifications */
+    /* Register for frequency notifications from detector 1 only */
     status = client_ctx.sensor_api->register_notification(
         SENSOR_TYPE_FREQUENCY,
+        1,  /* Specific detector ID */
         frequency_notification_callback,
         client_id);
 
@@ -130,21 +167,23 @@ static int client_start(fwk_id_t id)
         return status;
     }
 
-    FWK_LOG_INFO("[CLIENT] Successfully registered for all sensor notifications");
+    FWK_LOG_INFO("[CLIENT] Successfully registered for sensor notifications");
 
-    /* Example: Get current sensor values */
-    uint32_t temp_value, voltage_value, freq_value;
-    
-    if (client_ctx.sensor_api->get_sensor_value(SENSOR_TYPE_TEMPERATURE, &temp_value) == FWK_SUCCESS) {
-        FWK_LOG_INFO("[CLIENT] Current temperature: %u°C", temp_value);
-    }
-    
-    if (client_ctx.sensor_api->get_sensor_value(SENSOR_TYPE_VOLTAGE, &voltage_value) == FWK_SUCCESS) {
-        FWK_LOG_INFO("[CLIENT] Current voltage: %u mV", voltage_value);
-    }
-    
-    if (client_ctx.sensor_api->get_sensor_value(SENSOR_TYPE_FREQUENCY, &freq_value) == FWK_SUCCESS) {
-        FWK_LOG_INFO("[CLIENT] Current frequency: %u MHz", freq_value);
+    /* Example: Get current sensor values from both detectors */
+    uint32_t sensor_value;
+
+    for (detector_id = 0; detector_id < DETECTORS_PER_SENSOR; detector_id++) {
+        if (client_ctx.sensor_api->get_sensor_value(SENSOR_TYPE_TEMPERATURE, detector_id, &sensor_value) == FWK_SUCCESS) {
+            FWK_LOG_INFO("[CLIENT] Current temperature detector %d: %u°C", detector_id, sensor_value);
+        }
+
+        if (client_ctx.sensor_api->get_sensor_value(SENSOR_TYPE_VOLTAGE, detector_id, &sensor_value) == FWK_SUCCESS) {
+            FWK_LOG_INFO("[CLIENT] Current voltage detector %d: %u mV", detector_id, sensor_value);
+        }
+
+        if (client_ctx.sensor_api->get_sensor_value(SENSOR_TYPE_FREQUENCY, detector_id, &sensor_value) == FWK_SUCCESS) {
+            FWK_LOG_INFO("[CLIENT] Current frequency detector %d: %u MHz", detector_id, sensor_value);
+        }
     }
 
     return FWK_SUCCESS;
